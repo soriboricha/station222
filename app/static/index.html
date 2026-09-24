@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>STATION222</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/game.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">STATION<span>222</span></div>
+    <div class="location" id="location">Connecting…</div>
+    <div class="status" id="status" data-status="active">calm</div>
+    <button class="restart" id="restart" type="button" title="Start this encounter over">Restart</button>
+  </header>
+
+  <main class="layout">
+    <aside class="scene">
+      <div class="sprite-frame">
+        <img id="npc-sprite" alt="" hidden>
+        <div class="sprite-placeholder" id="sprite-placeholder">?</div>
+      </div>
+      <h2 class="npc-name" id="npc-name"></h2>
+
+      <section class="panel">
+        <h3>In the room</h3>
+        <ul id="room-items" class="item-list"></ul>
+      </section>
+      <section class="panel">
+        <h3>Your pockets</h3>
+        <ul id="inventory" class="item-list"></ul>
+      </section>
+    </aside>
+
+    <section class="chat">
+      <div class="log" id="log" aria-live="polite"></div>
+      <div class="banner" id="banner" hidden></div>
+      <form class="composer" id="composer" autocomplete="off">
+        <textarea id="input" rows="2" maxlength="1000"
+          placeholder="Say something, or describe what you do…"></textarea>
+        <button type="submit" id="send">Send</button>
+      </form>
+    </section>
+  </main>
+</body>
+</html>

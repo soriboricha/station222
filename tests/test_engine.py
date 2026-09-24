@@ -156,6 +156,24 @@ def test_api_rejects_invalid_role(client):
     assert response.status_code == 422
 
 
+def test_index_serves_game_page(client):
+    response = client.get("/")
+    assert response.status_code == 200
+    assert "STATION" in response.text
+    assert client.get("/static/game.js").status_code == 200
+
+
+def test_api_npc_detail_without_secrets(client):
+    response = client.get(f"/api/npcs/{CRYPTOGRAPHER.id}")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["room_items"] == ["Old Terminal", "Rusty Key"]
+    assert data["starting_inventory"] == ["Doctor Badge"]
+    assert data["opening_line"]
+    assert "7319" not in response.text
+    assert client.get("/api/npcs/nobody").status_code == 404
+
+
 def test_api_lists_npcs_without_secrets(client):
     response = client.get("/api/npcs")
     assert response.status_code == 200

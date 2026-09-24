@@ -38,3 +38,11 @@ class NpcSummary(BaseModel):
     id: str
     name: str
     location: str
+
+
+class NpcDetail(NpcSummary):
+    intro_narration: str
+    opening_line: str
+    opening_action: str
+    room_items: list[str]
+    starting_inventory: list[str]

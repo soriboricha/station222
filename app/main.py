@@ -1,17 +1,21 @@
 import logging
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.config import Settings, get_settings
 from app.engine import run_turn
 from app.llm import LLMClient, OpenAICompatibleClient
-from app.npcs import NPCS
-from app.schemas import InteractRequest, NpcResponse, NpcSummary
+from app.npcs import NPCS, NpcSpec
+from app.schemas import InteractRequest, NpcDetail, NpcResponse, NpcSummary
 
 logging.basicConfig(level=logging.INFO)
+
+STATIC_DIR = Path(__file__).parent / "static"
 
 app = FastAPI(title="STATION222 NPC Engine")
 app.add_middleware(
@@ -20,6 +24,7 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 _llm_client: LLMClient | None = None
 
@@ -33,9 +38,16 @@ def get_llm(settings: Annotated[Settings, Depends(get_settings)]) -> LLMClient:
     return _llm_client
 
 
+def get_npc(npc_id: str) -> NpcSpec:
+    npc = NPCS.get(npc_id)
+    if npc is None:
+        raise HTTPException(status_code=404, detail=f"Unknown NPC '{npc_id}'")
+    return npc
+
+
 @app.get("/", include_in_schema=False)
-async def root() -> RedirectResponse:
-    return RedirectResponse("/docs")
+async def index() -> FileResponse:
+    return FileResponse(STATIC_DIR / "index.html")
 
 
 @app.get("/health")
@@ -48,16 +60,27 @@ async def list_npcs() -> list[NpcSummary]:
     return [NpcSummary(id=n.id, name=n.name, location=n.location) for n in NPCS.values()]
 
 
+@app.get("/api/npcs/{npc_id}", response_model=NpcDetail)
+async def npc_detail(npc: Annotated[NpcSpec, Depends(get_npc)]) -> NpcDetail:
+    return NpcDetail(
+        id=npc.id,
+        name=npc.name,
+        location=npc.location,
+        intro_narration=npc.intro_narration,
+        opening_line=npc.opening_line,
+        opening_action=npc.opening_action,
+        room_items=list(npc.room_items),
+        starting_inventory=list(npc.starting_inventory),
+    )
+
+
 @app.post("/api/npcs/{npc_id}/interact", response_model=NpcResponse)
 async def interact(
-    npc_id: str,
+    npc: Annotated[NpcSpec, Depends(get_npc)],
     request: InteractRequest,
     llm: Annotated[LLMClient, Depends(get_llm)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> NpcResponse:
-    npc = NPCS.get(npc_id)
-    if npc is None:
-        raise HTTPException(status_code=404, detail=f"Unknown NPC '{npc_id}'")
     return await run_turn(
         npc,
         request,

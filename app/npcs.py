@@ -18,6 +18,11 @@ class NpcSpec:
     fallback_dialogue: str = "..."
     fallback_action: str = "The patient stares through you, silent."
     extra_rules: tuple[str, ...] = field(default_factory=tuple)
+    intro_narration: str = ""
+    opening_line: str = ""
+    opening_action: str = ""
+    room_items: tuple[str, ...] = ()
+    starting_inventory: tuple[str, ...] = ()
 
     @property
     def allowed_trigger_events(self) -> frozenset[str]:
@@ -68,6 +73,20 @@ CRYPTOGRAPHER = NpcSpec(
         "Threats, violence, or repeated clumsy lies make you hostile. Once hostile, you shut down and refuse to "
         "engage until the player seriously de-escalates.",
     ),
+    intro_narration=(
+        "The door to Ward 3, Room B hisses shut behind you. The room hums. An old terminal flickers in the "
+        "corner, its screen crawling with green characters, and a rusty key lies forgotten on the floor. "
+        "Hunched over a keyboard with no cable, a thin man in a patient gown stops typing."
+    ),
+    opening_line=(
+        "Stop. Don't come closer. Handshake first: who sent you, and what port did you come in through?"
+    ),
+    opening_action=(
+        "He swivels on his stool, eyes darting from your face to the badge clipped to your coat, fingers still "
+        "hovering over the dead keys."
+    ),
+    room_items=("Old Terminal", "Rusty Key"),
+    starting_inventory=("Doctor Badge",),
 )
 
 NPCS: dict[str, NpcSpec] = {npc.id: npc for npc in (CRYPTOGRAPHER,)}
