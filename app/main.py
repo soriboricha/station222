@@ -3,6 +3,7 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 
 from app.config import Settings, get_settings
 from app.engine import run_turn
@@ -30,6 +31,11 @@ def get_llm(settings: Annotated[Settings, Depends(get_settings)]) -> LLMClient:
             raise HTTPException(status_code=503, detail="LLM_API_KEY and LLM_MODEL must be configured")
         _llm_client = OpenAICompatibleClient(settings)
     return _llm_client
+
+
+@app.get("/", include_in_schema=False)
+async def root() -> RedirectResponse:
+    return RedirectResponse("/docs")
 
 
 @app.get("/health")
