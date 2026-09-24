@@ -15,7 +15,12 @@ class Settings(BaseSettings):
 
     max_llm_attempts: int = 3
     max_history_messages: int = 30
-    cors_origins: list[str] = ["*"]
+    # Comma-separated, e.g. "https://a.example.com,https://b.example.com".
+    cors_origins: str = "*"
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
 
 @lru_cache
