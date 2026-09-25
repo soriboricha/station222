@@ -11,14 +11,7 @@ from app.config import Settings, get_settings
 from app.engine import run_turn
 from app.llm import LLMClient, OpenAICompatibleClient
 from app.npcs import NPCS, NpcSpec
-from app.schemas import (
-    InteractRequest,
-    NpcDetail,
-    NpcPlacement,
-    NpcResponse,
-    NpcSummary,
-    WorldInfo,
-)
+from app.schemas import InteractRequest, NpcDetail, NpcResponse, NpcSummary, WorldInfo
 from app.world import STATION
 
 logging.basicConfig(level=logging.INFO)
@@ -63,26 +56,18 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+def npc_summary(npc: NpcSpec) -> NpcSummary:
+    return NpcSummary(id=npc.id, name=npc.name, location=npc.location, room=npc.room)
+
+
 @app.get("/api/world", response_model=WorldInfo)
 async def world() -> WorldInfo:
-    return WorldInfo(
-        station_id=STATION.id,
-        station_name=STATION.name,
-        first_room=STATION.first_room,
-        last_room=STATION.last_room,
-        spawns=STATION.spawns,
-        npcs=[
-            NpcPlacement(
-                id=n.id, name=n.name, location=n.location, room=n.room, room_items=list(n.room_items)
-            )
-            for n in NPCS.values()
-        ],
-    )
+    return WorldInfo(**STATION, npcs=[npc_summary(n) for n in NPCS.values()])
 
 
 @app.get("/api/npcs", response_model=list[NpcSummary])
 async def list_npcs() -> list[NpcSummary]:
-    return [NpcSummary(id=n.id, name=n.name, location=n.location, room=n.room) for n in NPCS.values()]
+    return [npc_summary(n) for n in NPCS.values()]
 
 
 @app.get("/api/npcs/{npc_id}", response_model=NpcDetail)
@@ -96,7 +81,6 @@ async def npc_detail(npc: Annotated[NpcSpec, Depends(get_npc)]) -> NpcDetail:
         opening_line=npc.opening_line,
         opening_action=npc.opening_action,
         room_items=list(npc.room_items),
-        starting_inventory=list(npc.starting_inventory),
     )
 
 

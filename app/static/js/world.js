@@ -1,297 +1,367 @@
 import * as THREE from "three";
+import { buildProp } from "./props.js";
+import { floorMaterial, wallMaterial, MATERIALS, signTexture } from "./materials.js";
 
-export const DIM = {
-  roomWidth: 4,
-  roomDepth: 5,
-  corridorHalf: 1.5,
-  height: 3,
-  wall: 0.2,
-  doorWidth: 1.2,
-  doorHeight: 2.2,
-};
+export const WALL_THICKNESS = 0.2;
+const DOOR_HEIGHT = 2.2;
+const GATE_HEIGHT = 2.4;
+const DOOR_SPEED = 2.2; // fraction of the swing per second
+const SIDE_PROBE = 0.3;
 
-const DOOR_SPEED = 4; // radians per second
-
-function canvasTexture(size, draw, repeatX = 1, repeatY = 1) {
-  const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = size;
-  draw(canvas.getContext("2d"), size);
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.magFilter = THREE.NearestFilter;
-  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.set(repeatX, repeatY);
-  return texture;
-}
-
-function tileTexture(repeatX, repeatY) {
-  return canvasTexture(32, (ctx, s) => {
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, s, s);
-    for (let i = 0; i < 90; i++) {
-      const shade = 225 + Math.floor(Math.random() * 30);
-      ctx.fillStyle = `rgb(${shade},${shade},${shade})`;
-      ctx.fillRect(Math.floor(Math.random() * s), Math.floor(Math.random() * s), 2, 2);
-    }
-    ctx.fillStyle = "#9a9a9a";
-    ctx.fillRect(0, 0, s, 1);
-    ctx.fillRect(0, 0, 1, s);
-  }, repeatX, repeatY);
-}
-
-function signTexture(text, sub) {
-  const canvas = document.createElement("canvas");
-  canvas.width = 256;
-  canvas.height = 128;
-  const ctx = canvas.getContext("2d");
-  ctx.fillStyle = "#1d2a33";
-  ctx.fillRect(0, 0, 256, 128);
-  ctx.strokeStyle = "#8fb3c7";
-  ctx.lineWidth = 6;
-  ctx.strokeRect(6, 6, 244, 116);
-  ctx.fillStyle = "#e9f3f8";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.font = "bold 64px monospace";
-  ctx.fillText(text, 128, sub ? 56 : 66);
-  if (sub) {
-    ctx.font = "20px monospace";
-    ctx.fillStyle = "#8fb3c7";
-    ctx.fillText(sub, 128, 100);
+export function pointInPolygon(x, z, polygon) {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const [xi, zi] = polygon[i];
+    const [xj, zj] = polygon[j];
+    if (zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
   }
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
+  return inside;
 }
 
-/**
- * Builds a straight station corridor along +X with patient rooms on both sides.
- * Rooms alternate sides by number: first_room, first_room+2, ... on the south side (-Z),
- * first_room+1, first_room+3, ... on the north side (+Z).
- */
-export function buildStation(scene, world) {
-  const { roomWidth: W, roomDepth: D, corridorHalf: C, height: H, wall: T, doorWidth: DW, doorHeight: DH } = DIM;
-  const perSide = Math.ceil((world.last_room - world.first_room + 1) / 2);
-  const length = perSide * W;
+function polygonCentroid(polygon) {
+  let area = 0;
+  let cx = 0;
+  let cz = 0;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const [x0, z0] = polygon[j];
+    const [x1, z1] = polygon[i];
+    const cross = x0 * z1 - x1 * z0;
+    area += cross;
+    cx += (x0 + x1) * cross;
+    cz += (z0 + z1) * cross;
+  }
+  if (Math.abs(area) < 1e-6) return polygon[0];
+  return [cx / (3 * area), cz / (3 * area)];
+}
 
-  const colliders = [];
+function segmentDistance(px, pz, s) {
+  const vx = s.bx - s.ax;
+  const vz = s.bz - s.az;
+  const lenSq = vx * vx + vz * vz;
+  const t = lenSq ? Math.max(0, Math.min(1, ((px - s.ax) * vx + (pz - s.az) * vz) / lenSq)) : 0;
+  return Math.hypot(px - (s.ax + vx * t), pz - (s.az + vz * t));
+}
+
+/** Box geometry whose UVs are in meters, so tiled textures keep their scale on any wall size. */
+function meterBox(width, height, depth, yOffset = 0) {
+  const geometry = new THREE.BoxGeometry(width, height, depth);
+  const pos = geometry.attributes.position;
+  const normal = geometry.attributes.normal;
+  const uv = geometry.attributes.uv;
+  for (let i = 0; i < pos.count; i++) {
+    const nx = Math.abs(normal.getX(i));
+    const ny = Math.abs(normal.getY(i));
+    const x = pos.getX(i) + width / 2;
+    const y = pos.getY(i) + height / 2 + yOffset;
+    const z = pos.getZ(i) + depth / 2;
+    if (ny > 0.5) uv.setXY(i, x, z);
+    else if (nx > 0.5) uv.setXY(i, z, y);
+    else uv.setXY(i, x, y);
+  }
+  return geometry;
+}
+
+function shapeGeometry(polygon) {
+  const shape = new THREE.Shape(polygon.map(([x, z]) => new THREE.Vector2(x, -z)));
+  const geometry = new THREE.ShapeGeometry(shape);
+  geometry.rotateX(-Math.PI / 2);
+  return geometry;
+}
+
+export function buildStation(scene, world) {
+  const H = world.wall_height;
+  const rooms = new Map(world.rooms.map((r) => [r.id, { ...r, centroid: polygonCentroid(r.polygon) }]));
+  const segments = [];
+  const boxes = [];
   const interactables = [];
   const doors = [];
   const flickerLights = [];
-  const rooms = new Map();
 
-  for (let number = world.first_room; number <= world.last_room; number++) {
-    const offset = number - world.first_room;
-    const index = Math.floor(offset / 2);
-    const side = offset % 2 === 0 ? -1 : 1;
-    const x0 = index * W;
-    rooms.set(number, {
-      number,
-      index,
-      side,
-      x0,
-      x1: x0 + W,
-      cx: x0 + W / 2,
-      cz: side * (C + D / 2),
-      wallZ: side * C,
-      backZ: side * (C + D),
-    });
-  }
-
-  const mats = {
-    wall: new THREE.MeshLambertMaterial({ color: "#aebdb2" }),
-    roomFloor: new THREE.MeshLambertMaterial({ color: "#c9c1ab", map: tileTexture(length, 2 * (C + D)) }),
-    corridorFloor: new THREE.MeshLambertMaterial({ color: "#8e9c95", map: tileTexture(length, 2 * C) }),
-    ceiling: new THREE.MeshLambertMaterial({ color: "#d7dbd4" }),
-    door: new THREE.MeshLambertMaterial({ color: "#4f6879" }),
-    knob: new THREE.MeshLambertMaterial({ color: "#cfd3d6" }),
-    bedFrame: new THREE.MeshLambertMaterial({ color: "#8a959b" }),
-    mattress: new THREE.MeshLambertMaterial({ color: "#e4e8ea" }),
-    pillow: new THREE.MeshLambertMaterial({ color: "#ffffff" }),
-    blanket: new THREE.MeshLambertMaterial({ color: "#7e9fb3" }),
-    lightPanel: new THREE.MeshBasicMaterial({ color: "#f2fff6" }),
+  const roomAt = (x, z) => {
+    for (const room of rooms.values()) if (pointInPolygon(x, z, room.polygon)) return room;
+    return null;
   };
 
-  function addBox(x0, x1, y0, y1, z0, z1, material, collide = true) {
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0), material);
-    mesh.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
-    scene.add(mesh);
-    if (collide) colliders.push({ minX: x0, maxX: x1, minZ: z0, maxZ: z1 });
-    return mesh;
-  }
+  const ctx = {
+    scene,
+    rooms,
+    addBox(minX, maxX, minZ, maxZ) {
+      boxes.push({ minX, maxX, minZ, maxZ });
+    },
+    addInteractable(mesh, interact) {
+      mesh.userData.interact = interact;
+      interactables.push(mesh);
+    },
+    addFlickerLight(light) {
+      flickerLights.push({ light, base: light.intensity, seed: Math.random() * 100 });
+    },
+  };
 
-  function addPlane(width, depth, x, y, z, material, facingDown = false) {
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, depth), material);
-    mesh.rotation.x = facingDown ? Math.PI / 2 : -Math.PI / 2;
-    mesh.position.set(x, y, z);
-    scene.add(mesh);
-    return mesh;
-  }
-
-  // Floors and ceiling
-  addPlane(length, 2 * (C + D), length / 2, 0, 0, mats.roomFloor);
-  addPlane(length, 2 * C, length / 2, 0.002, 0, mats.corridorFloor);
-  addPlane(length, 2 * (C + D), length / 2, H, 0, mats.ceiling, true);
-
-  for (const side of [-1, 1]) {
-    const wallZ = side * C;
-    const zA = wallZ - T / 2;
-    const zB = wallZ + T / 2;
-
-    // Corridor wall with a doorway per room
-    for (let index = 0; index < perSide; index++) {
-      const number = world.first_room + index * 2 + (side === 1 ? 1 : 0);
-      const x0 = index * W;
-      const x1 = x0 + W;
-      if (!rooms.has(number)) {
-        addBox(x0, x1, 0, H, zA, zB, mats.wall);
-        continue;
-      }
-      const cx = x0 + W / 2;
-      const dx0 = cx - DW / 2;
-      const dx1 = cx + DW / 2;
-      addBox(x0, dx0, 0, H, zA, zB, mats.wall);
-      addBox(dx1, x1, 0, H, zA, zB, mats.wall);
-      addBox(dx0, dx1, DH, H, zA, zB, mats.wall, false);
-      addDoor(rooms.get(number), dx0, wallZ);
-      addSign(String(number), cx + DW / 2 + 0.45, 1.75, wallZ - side * (T / 2 + 0.01), side);
-    }
-
-    // Walls between rooms and the back wall
-    const backZ = side * (C + D);
-    for (let index = 0; index <= perSide; index++) {
-      const x = index * W;
-      addBox(x - T / 2, x + T / 2, 0, H, Math.min(wallZ, backZ), Math.max(wallZ, backZ), mats.wall);
-    }
-    addBox(-T / 2, length + T / 2, 0, H, backZ - T / 2, backZ + T / 2, mats.wall);
-  }
-
-  // Corridor end caps with station signs
-  addBox(-T / 2 - 0.2, 0, 0, H, -C, C, mats.wall);
-  addBox(length, length + T / 2 + 0.2, 0, H, -C, C, mats.wall);
-  addSign(world.station_name.toUpperCase(), 0.01, 1.9, 0, 0, Math.PI / 2, 1.6, `${world.first_room}–${world.last_room}`);
-  addSign(world.station_name.toUpperCase(), length - 0.01, 1.9, 0, 0, -Math.PI / 2, 1.6, `${world.first_room}–${world.last_room}`);
-
-  // Corridor lights
-  for (let x = 2; x < length; x += 4) {
-    addBox(x - 0.5, x + 0.5, H - 0.03, H, -0.25, 0.25, mats.lightPanel, false);
-  }
-  for (let x = 4; x < length; x += 8) {
-    const light = new THREE.PointLight("#e4fff0", 9, 11, 2);
-    light.position.set(x, H - 0.3, 0);
-    scene.add(light);
-  }
-
-  // Room furniture
+  // Floors, ceilings and room lights
   for (const room of rooms.values()) {
-    const s = room.side;
-    const innerBack = room.backZ - s * (T / 2);
-    const bedX0 = room.x0 + T / 2 + 0.25;
-    const bedX1 = bedX0 + 1.0;
-    const bedZ0 = innerBack - s * 2.1;
-    const zMin = Math.min(bedZ0, innerBack);
-    const zMax = Math.max(bedZ0, innerBack);
-    addBox(bedX0, bedX1, 0, 0.45, zMin, zMax, mats.bedFrame);
-    addBox(bedX0 + 0.05, bedX1 - 0.05, 0.45, 0.6, zMin + 0.05, zMax - 0.05, mats.mattress, false);
-    const blanketFar = innerBack - s * 0.6;
-    addBox(bedX0 + 0.04, bedX1 - 0.04, 0.6, 0.64, Math.min(bedZ0, blanketFar) + 0.05, Math.max(bedZ0, blanketFar) - 0.05, mats.blanket, false);
-    const pillowNear = innerBack - s * 0.5;
-    addBox(bedX0 + 0.15, bedX1 - 0.15, 0.6, 0.72, Math.min(pillowNear, innerBack - s * 0.1), Math.max(pillowNear, innerBack - s * 0.1), mats.pillow, false);
-    addBox(room.cx - 0.4, room.cx + 0.4, H - 0.03, H, room.cz - 0.4, room.cz + 0.4, mats.lightPanel, false);
-  }
-
-  function addDoor(room, hingeX, wallZ) {
-    const group = new THREE.Group();
-    group.position.set(hingeX, 0, wallZ);
-    const leaf = new THREE.Mesh(new THREE.BoxGeometry(DW - 0.02, DH - 0.02, 0.06), mats.door);
-    leaf.position.set(DW / 2, DH / 2, 0);
-    group.add(leaf);
-    for (const face of [-1, 1]) {
-      const knob = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.06), mats.knob);
-      knob.position.set(DW - 0.15, 1.0, face * 0.06);
-      group.add(knob);
+    const geometry = shapeGeometry(room.polygon);
+    scene.add(new THREE.Mesh(geometry, floorMaterial(room.floor)));
+    if (!room.outdoor) {
+      const ceiling = new THREE.Mesh(geometry, MATERIALS.ceiling);
+      ceiling.position.y = H;
+      scene.add(ceiling);
+      const [cx, cz] = room.centroid;
+      const panel = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.04, 0.8), MATERIALS.lightPanel);
+      panel.position.set(cx, H - 0.02, cz);
+      scene.add(panel);
     }
-    scene.add(group);
-
-    const collider = { minX: hingeX, maxX: hingeX + DW, minZ: wallZ - 0.08, maxZ: wallZ + 0.08, enabled: true };
-    colliders.push(collider);
-
-    const door = {
-      room: room.number,
-      group,
-      collider,
-      open: false,
-      angle: 0,
-      // Swing into the room: north rooms are +Z, south rooms -Z.
-      openAngle: room.side === 1 ? -Math.PI / 2 : Math.PI / 2,
-      toggle() {
-        this.open = !this.open;
-      },
-    };
-    leaf.userData.interact = { type: "door", door };
-    interactables.push(leaf);
-    doors.push(door);
+    if (room.light) {
+      const [cx, cz] = room.centroid;
+      const light = new THREE.PointLight(room.light.color, room.light.intensity, 14, 2);
+      light.position.set(cx, H - 0.4, cz);
+      scene.add(light);
+    }
+    for (const prop of room.props) buildProp(ctx, room, prop);
   }
 
-  function addSign(text, x, y, z, side, rotationY, width = 0.5, sub) {
-    const w = width;
-    const mesh = new THREE.Mesh(
-      new THREE.PlaneGeometry(w, w / 2),
-      new THREE.MeshBasicMaterial({ map: signTexture(text, sub) }),
-    );
-    mesh.position.set(x, y, z);
-    // Plane faces +Z by default; corridor side of a north wall faces -Z.
-    mesh.rotation.y = rotationY ?? (side === 1 ? Math.PI : 0);
-    scene.add(mesh);
+  for (const wall of world.walls) buildWall(wall);
+
+  function buildWall(wall) {
+    const [ax, az] = wall.a;
+    const [bx, bz] = wall.b;
+    const length = Math.hypot(bx - ax, bz - az);
+    const dx = (bx - ax) / length;
+    const dz = (bz - az) / length;
+    // Normal of the box's local +Z face after rotating by theta.
+    const nx = -dz;
+    const nz = dx;
+    const theta = Math.atan2(-dz, dx);
+    const height = wall.height;
+    const at = (t) => [ax + dx * t, az + dz * t];
+
+    const styleAt = (t, sign) => {
+      if (wall.material) return wall.material;
+      const [px, pz] = at(Math.max(0.05, Math.min(length - 0.05, t)));
+      const room = roomAt(px + sign * nx * SIDE_PROBE, pz + sign * nz * SIDE_PROBE);
+      if (!room) return "exterior";
+      return room.outdoor ? "exterior" : room.wall_style;
+    };
+    const keyAt = (t) => `${styleAt(t, 1)}|${styleAt(t, -1)}`;
+
+    function addPiece(s, e, y0, y1, collide) {
+      if (e - s < 0.005 || y1 - y0 < 0.005) return;
+      const mid = (s + e) / 2;
+      const materials = [
+        MATERIALS.wallEdge, MATERIALS.wallEdge, MATERIALS.wallEdge, MATERIALS.wallEdge,
+        wallMaterial(styleAt(mid, 1)), wallMaterial(styleAt(mid, -1)),
+      ];
+      const mesh = new THREE.Mesh(meterBox(e - s, y1 - y0, WALL_THICKNESS, y0), materials);
+      const [px, pz] = at(mid);
+      mesh.position.set(px, (y0 + y1) / 2, pz);
+      mesh.rotation.y = theta;
+      scene.add(mesh);
+      if (collide) {
+        const [sx, sz] = at(s);
+        const [ex, ez] = at(e);
+        segments.push({ ax: sx, az: sz, bx: ex, bz: ez, r: WALL_THICKNESS / 2 });
+      }
+    }
+
+    // Split a solid stretch wherever the rooms on either side change, so each face gets its room's style.
+    function addSolid(s, e, y0 = 0, y1 = height, collide = true) {
+      if (e <= s) return;
+      const step = 0.25;
+      let start = s;
+      let prev = s;
+      let key = keyAt(s);
+      while (prev < e) {
+        const t = Math.min(prev + step, e);
+        const next = keyAt(t);
+        if (next !== key) {
+          let lo = prev;
+          let hi = t;
+          for (let i = 0; i < 8; i++) {
+            const m = (lo + hi) / 2;
+            if (keyAt(m) === key) lo = m;
+            else hi = m;
+          }
+          addPiece(start, hi, y0, y1, collide);
+          start = hi;
+          key = next;
+        }
+        prev = t;
+      }
+      addPiece(start, e, y0, y1, collide);
+    }
+
+    const openings = [...wall.openings].sort((p, q) => p.at - q.at);
+    let t = -WALL_THICKNESS / 2;
+    for (const o of openings) {
+      const s = o.at - o.width / 2;
+      const e = o.at + o.width / 2;
+      addSolid(t, s);
+      buildOpening(o, s, e);
+      t = e;
+    }
+    addSolid(t, length + WALL_THICKNESS / 2);
+
+    function buildOpening(o, s, e) {
+      if (o.kind === "open") return;
+      if (o.kind === "window") {
+        addSolid(s, e, 0, 0.9, false);
+        addSolid(s, e, 2.2, height, false);
+        const [px, pz] = at((s + e) / 2);
+        const glass = new THREE.Mesh(new THREE.PlaneGeometry(e - s, 1.3), MATERIALS.glass);
+        glass.position.set(px, 1.55, pz);
+        glass.rotation.y = theta;
+        scene.add(glass);
+        const [sx, sz] = at(s);
+        const [ex, ez] = at(e);
+        segments.push({ ax: sx, az: sz, bx: ex, bz: ez, r: WALL_THICKNESS / 2 });
+        return;
+      }
+
+      const leafHeight = o.kind === "gate" ? GATE_HEIGHT : DOOR_HEIGHT;
+      addSolid(s, e, leafHeight, height, false);
+
+      const [cx, cz] = at(o.at);
+      const target = o.into ? rooms.get(o.into) : null;
+      const plusInside = target ? pointInPolygon(cx + nx * 0.5, cz + nz * 0.5, target.polygon) : true;
+      const swing = plusInside ? -Math.PI / 2 : Math.PI / 2;
+
+      const double = o.kind === "double" || o.kind === "double_glass" || o.kind === "gate";
+      const leafWidth = double ? o.width / 2 : o.width;
+      const leaves = [];
+      const door = {
+        id: o.id,
+        label: o.label || "door",
+        locked: !!o.locked,
+        kind: o.kind,
+        open: false,
+        progress: 0,
+        leaves,
+        collider: null,
+        toggle() {
+          if (this.locked) return false;
+          this.open = !this.open;
+          return true;
+        },
+      };
+
+      const addLeaf = (t0, base, openRot) => {
+        const group = new THREE.Group();
+        const [hx, hz] = at(t0);
+        group.position.set(hx, 0, hz);
+        group.rotation.y = base;
+        const leaf = makeLeaf(o.kind, leafWidth, leafHeight - 0.02);
+        group.add(leaf);
+        scene.add(group);
+        leaf.traverse((child) => {
+          if (child.isMesh) ctx.addInteractable(child, { type: "door", door });
+        });
+        leaves.push({ group, base, openRot });
+      };
+      addLeaf(s, theta, theta + swing);
+      if (double) addLeaf(e, theta + Math.PI, theta + Math.PI - swing);
+
+      const [sx, sz] = at(s);
+      const [ex, ez] = at(e);
+      door.collider = { ax: sx, az: sz, bx: ex, bz: ez, r: 0.08, enabled: true };
+      segments.push(door.collider);
+      doors.push(door);
+
+      if (o.sign && o.label) addSign(o, s, e, plusInside ? -1 : 1);
+    }
+
+    function addSign(o, s, e, side) {
+      const width = o.label.length <= 4 ? 0.5 : 0.95;
+      const clear = (t0) =>
+        t0 - width / 2 > 0 && t0 + width / 2 < length &&
+        openings.every((p) => p === o || t0 + width / 2 < p.at - p.width / 2 || t0 - width / 2 > p.at + p.width / 2);
+      let ts = e + 0.15 + width / 2;
+      if (!clear(ts)) ts = s - 0.15 - width / 2;
+      if (!clear(ts)) return;
+      const [px, pz] = at(ts);
+      const mesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(width, 0.25),
+        new THREE.MeshBasicMaterial({ map: signTexture(o.label, width / 0.25) }),
+      );
+      const fx = side * nx;
+      const fz = side * nz;
+      mesh.position.set(px + fx * (WALL_THICKNESS / 2 + 0.01), 1.8, pz + fz * (WALL_THICKNESS / 2 + 0.01));
+      mesh.rotation.y = Math.atan2(fx, fz);
+      scene.add(mesh);
+    }
   }
 
   return {
+    world,
     rooms,
-    length,
-    colliders,
+    segments,
+    boxes,
     interactables,
     doors,
-    flickerLights,
-
-    addFlickerLight(light) {
-      flickerLights.push({ light, base: light.intensity });
-    },
 
     blocked(x, z, radius) {
-      for (const b of colliders) {
-        if (b.enabled === false) continue;
+      for (const s of segments) {
+        if (s.enabled === false) continue;
+        if (segmentDistance(x, z, s) < radius + s.r) return true;
+      }
+      for (const b of boxes) {
         if (x + radius > b.minX && x - radius < b.maxX && z + radius > b.minZ && z - radius < b.maxZ) return true;
       }
       return false;
     },
 
-    roomAt(x, z) {
-      if (Math.abs(z) <= C || x < 0 || x > length) return null;
-      const index = Math.floor(x / W);
-      const number = world.first_room + index * 2 + (z > 0 ? 1 : 0);
-      return rooms.has(number) ? number : null;
-    },
-
-    spawnPoint(number) {
-      const room = rooms.get(number);
-      if (!room) throw new Error(`Room ${number} does not exist in ${world.station_name}`);
-      // Stand mid-room, facing the door (camera looks down -Z at yaw 0).
-      return { x: room.cx + 0.2, z: room.cz - room.side * 0.4, yaw: room.side === 1 ? 0 : Math.PI };
-    },
+    roomAt,
 
     update(dt, time) {
       for (const door of doors) {
-        const target = door.open ? door.openAngle : 0;
-        const delta = target - door.angle;
-        const step = Math.sign(delta) * Math.min(Math.abs(delta), DOOR_SPEED * dt);
-        door.angle += step;
-        door.group.rotation.y = door.angle;
-        door.collider.enabled = Math.abs(door.angle) < 0.35;
+        const target = door.open ? 1 : 0;
+        const delta = target - door.progress;
+        door.progress += Math.sign(delta) * Math.min(Math.abs(delta), DOOR_SPEED * dt);
+        const eased = door.progress * door.progress * (3 - 2 * door.progress);
+        for (const leaf of door.leaves) leaf.group.rotation.y = leaf.base + (leaf.openRot - leaf.base) * eased;
+        door.collider.enabled = door.progress < 0.2;
       }
       for (const f of flickerLights) {
-        const flicker = Math.sin(time * 23) * Math.sin(time * 7.3) > 0.85 ? 0.25 : 1;
+        const flicker = Math.sin(time * 23 + f.seed) * Math.sin(time * 7.3 + f.seed) > 0.85 ? 0.25 : 1;
         f.light.intensity = f.base * flicker;
       }
     },
   };
+}
+
+function makeLeaf(kind, width, height) {
+  const group = new THREE.Group();
+  const box = (w, h, d, x, y, material) => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
+    mesh.position.set(x, y, 0);
+    group.add(mesh);
+    return mesh;
+  };
+
+  if (kind === "gate") {
+    const bars = Math.max(3, Math.round(width / 0.14));
+    for (let i = 0; i <= bars; i++) box(0.04, height, 0.04, 0.02 + (i * (width - 0.04)) / bars, height / 2, MATERIALS.iron);
+    box(width, 0.06, 0.05, width / 2, 0.15, MATERIALS.iron);
+    box(width, 0.06, 0.05, width / 2, height - 0.05, MATERIALS.iron);
+    box(width, 0.06, 0.05, width / 2, height / 2, MATERIALS.iron);
+    return group;
+  }
+
+  const material = MATERIALS.door;
+  if (kind === "glass" || kind === "double_glass") {
+    const frame = 0.1;
+    box(width, frame, 0.06, width / 2, height - frame / 2, material);
+    box(width, 0.9, 0.06, width / 2, 0.45, material);
+    box(frame, height, 0.06, frame / 2, height / 2, material);
+    box(frame, height, 0.06, width - frame / 2, height / 2, material);
+    const glass = new THREE.Mesh(new THREE.PlaneGeometry(width - 2 * frame, height - 0.9 - frame), MATERIALS.glass);
+    glass.position.set(width / 2, 0.9 + (height - 0.9 - frame) / 2, 0);
+    group.add(glass);
+  } else {
+    box(width - 0.01, height, 0.06, width / 2, height / 2, material);
+  }
+  for (const face of [-1, 1]) {
+    const knob = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.05), MATERIALS.knob);
+    knob.position.set(width - 0.14, 1.0, face * 0.055);
+    group.add(knob);
+  }
+  return group;
 }

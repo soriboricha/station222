@@ -85,7 +85,7 @@ export class Chat {
       }
     } catch (err) {
       console.error(err);
-      this.els.log.replaceChildren(el("div", "entry system error", "He doesn't seem to hear you. Try again."));
+      this.els.log.replaceChildren(el("div", "entry system error", "They don't seem to hear you. Try again."));
       return;
     }
     if (!this.isOpen) return;
@@ -203,7 +203,7 @@ export class Chat {
     els.banner.className = `banner ${state.status}`;
     els.banner.textContent = over
       ? "ACCESS GRANTED: you got what you came for. Reset to try a different approach."
-      : "He has shut down. Maybe you can talk him back down… carefully.";
+      : `${this.shortName()} has shut down. Maybe you can calm things down… carefully.`;
 
     this.setInputEnabled(!over && !this.busy);
     els.log.scrollTop = els.log.scrollHeight;
@@ -233,8 +233,9 @@ export class Chat {
     }
 
     if (update.status !== state.status) {
-      if (update.status === "hostile") state.log.push({ type: "system", variant: "error", text: "He turns hostile." });
-      if (update.status === "active" && state.status === "hostile") state.log.push({ type: "system", text: "He calms down, a little." });
+      const who = this.shortName();
+      if (update.status === "hostile") state.log.push({ type: "system", variant: "error", text: `${who} turns hostile.` });
+      if (update.status === "active" && state.status === "hostile") state.log.push({ type: "system", text: `${who} calms down, a little.` });
       if (update.status === "defeated") state.log.push({ type: "system", variant: "win", text: "Secret obtained." });
     }
     state.status = update.status;
@@ -266,7 +267,7 @@ export class Chat {
       console.error(err);
       state.log.pop();
       this.els.input.value = text;
-      state.log.push({ type: "system", variant: "error", text: "Signal lost. Your words didn't reach him; try again." });
+      state.log.push({ type: "system", variant: "error", text: "Signal lost. Your words didn't get through; try again." });
     } finally {
       typing.remove();
       this.busy = false;

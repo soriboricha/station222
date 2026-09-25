@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -38,20 +38,24 @@ class NpcSummary(BaseModel):
     id: str
     name: str
     location: str
-    room: int
+    room: str
 
 
-class NpcPlacement(NpcSummary):
-    room_items: list[str]
+class Spawn(BaseModel):
+    room: str
+    x: float
+    z: float
+    yaw: float
 
 
 class WorldInfo(BaseModel):
     station_id: int
     station_name: str
-    first_room: int
-    last_room: int
-    spawns: dict[str, int]
-    npcs: list[NpcPlacement]
+    wall_height: float
+    spawns: dict[str, Spawn]
+    rooms: list[dict[str, Any]]
+    walls: list[dict[str, Any]]
+    npcs: list[NpcSummary]
 
 
 class NpcDetail(NpcSummary):
@@ -59,4 +63,3 @@ class NpcDetail(NpcSummary):
     opening_line: str
     opening_action: str
     room_items: list[str]
-    starting_inventory: list[str]

@@ -1,5 +1,3 @@
-import { DIM } from "./world.js";
-
 const EYE_HEIGHT = 1.6;
 const RADIUS = 0.3;
 const WALK_SPEED = 4.3;
@@ -79,7 +77,8 @@ export class Player {
       this.vy = 0;
       this.onGround = true;
     }
-    const maxY = DIM.height - EYE_HEIGHT - 0.15;
+    const room = this.station.roomAt(this.x, this.z);
+    const maxY = room?.outdoor ? Infinity : this.station.world.wall_height - EYE_HEIGHT - 0.15;
     if (this.y > maxY) {
       this.y = maxY;
       this.vy = Math.min(this.vy, 0);

@@ -23,7 +23,10 @@ def extract_json(raw: str) -> str:
 
 
 def secret_revealed(npc: NpcSpec, dialogue: str) -> bool:
-    return re.search(rf"(?<!\d){re.escape(npc.secret_token)}(?!\d)", dialogue) is not None
+    if not npc.secret_token:
+        return False
+    pattern = rf"(?<!\w){re.escape(npc.secret_token)}(?!\w)"
+    return re.search(pattern, dialogue, re.IGNORECASE) is not None
 
 
 def enforce_rules(npc: NpcSpec, request: InteractRequest, response: NpcResponse) -> NpcResponse:
@@ -32,23 +35,25 @@ def enforce_rules(npc: NpcSpec, request: InteractRequest, response: NpcResponse)
     status = update.status
     trigger = update.trigger_event if update.trigger_event in npc.allowed_trigger_events else "none"
 
-    if secret_revealed(npc, response.npc_dialogue):
-        status, trigger = "defeated", "revealed_secret"
-    elif status == "defeated":
-        logger.warning("LLM claimed defeat for %s without revealing the secret; downgrading", npc.id)
-        status = "active"
-        if trigger == "revealed_secret":
-            trigger = "none"
-
-    if status == "hostile" and trigger == "none":
-        trigger = "turned_hostile"
-
     allowed_items = set(npc.giveable_items) | set(request.room_state.items_present)
     owned = set(request.room_state.player_inventory)
     items: list[str] = []
     for item in update.items_given_to_player:
         if item in allowed_items and item not in owned and item not in items:
             items.append(item)
+
+    if secret_revealed(npc, response.npc_dialogue):
+        status, trigger = "defeated", "revealed_secret"
+    elif npc.victory_item and npc.victory_item in items:
+        status, trigger = "defeated", "gave_item"
+    elif status == "defeated":
+        logger.warning("LLM claimed defeat for %s without meeting the condition; downgrading", npc.id)
+        status = "active"
+        if trigger == "revealed_secret":
+            trigger = "none"
+
+    if status == "hostile" and trigger == "none":
+        trigger = "turned_hostile"
 
     if items and trigger == "none":
         trigger = "gave_item"
