@@ -76,6 +76,14 @@ def test_fallback_after_all_attempts_fail():
     assert result.game_state_update.status == "active"
 
 
+def test_missing_game_state_update_defaults_to_active():
+    llm = FakeLLM(json.dumps({"npc_dialogue": "Hm.", "npc_action_description": "He blinks."}))
+    result = turn(llm)
+    assert len(llm.calls) == 1
+    assert result.npc_dialogue == "Hm."
+    assert result.game_state_update.status == "active"
+
+
 def test_revealing_passcode_forces_defeat():
     result = turn(FakeLLM(reply(dialogue="Fine, fellow ghost. 7319. Go.")))
     assert result.game_state_update.status == "defeated"
@@ -160,7 +168,20 @@ def test_index_serves_game_page(client):
     response = client.get("/")
     assert response.status_code == 200
     assert "STATION" in response.text
-    assert client.get("/static/game.js").status_code == 200
+    for script in ("main", "world", "player", "npc", "chat"):
+        assert client.get(f"/static/js/{script}.js").status_code == 200
+
+
+def test_api_world_layout(client):
+    data = client.get("/api/world").json()
+    assert data["station_name"] == "Station 2"
+    assert data["spawns"] == {"player1": 116, "player2": 136}
+    rooms = range(data["first_room"], data["last_room"] + 1)
+    assert all(room in rooms for room in data["spawns"].values())
+    npc = next(n for n in data["npcs"] if n["id"] == CRYPTOGRAPHER.id)
+    assert npc["room"] == 114 and npc["room"] in rooms
+    assert npc["room_items"] == ["Old Terminal", "Rusty Key"]
+    assert "7319" not in json.dumps(data)
 
 
 def test_api_npc_detail_without_secrets(client):

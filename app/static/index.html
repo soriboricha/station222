@@ -5,43 +5,67 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>STATION222</title>
   <link rel="stylesheet" href="/static/style.css">
-  <script src="/static/game.js" defer></script>
+  <script type="importmap">
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js" } }
+  </script>
+  <script type="module" src="/static/js/main.js"></script>
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">STATION<span>222</span></div>
-    <div class="location" id="location">Connecting…</div>
-    <div class="status" id="status" data-status="active">calm</div>
-    <button class="restart" id="restart" type="button" title="Start this encounter over">Restart</button>
-  </header>
+  <div id="viewport"></div>
 
-  <main class="layout">
-    <aside class="scene">
-      <div class="sprite-frame">
-        <img id="npc-sprite" alt="" hidden>
-        <div class="sprite-placeholder" id="sprite-placeholder">?</div>
+  <div class="hud">
+    <div class="hud-location" id="hud-location"></div>
+    <div class="crosshair"></div>
+    <div class="hud-prompt" id="hud-prompt" hidden></div>
+    <div class="hud-help">WASD move · Mouse look · Space jump · Shift sprint · E interact · Esc pause</div>
+  </div>
+
+  <div class="overlay" id="overlay">
+    <div class="overlay-card">
+      <h1 class="brand">STATION<span>222</span></h1>
+      <p class="overlay-sub" id="overlay-sub">Loading the facility…</p>
+      <button type="button" id="overlay-btn" disabled>Enter</button>
+      <p class="overlay-controls">WASD move · Mouse look · Space jump · Shift sprint · E interact</p>
+    </div>
+  </div>
+
+  <div class="chat-overlay" id="chat" hidden>
+    <div class="chat-window">
+      <header class="chat-header">
+        <div class="chat-title">
+          <div class="chat-npc" id="chat-npc"></div>
+          <div class="chat-room" id="chat-room"></div>
+        </div>
+        <div class="status" id="status" data-status="active">calm</div>
+        <button type="button" id="chat-reset" title="Start this conversation over">Reset</button>
+        <button type="button" id="chat-close">Leave (Esc)</button>
+      </header>
+      <div class="chat-body">
+        <aside class="chat-side">
+          <div class="sprite-frame">
+            <img id="chat-sprite" alt="" hidden>
+            <div class="sprite-placeholder" id="chat-sprite-placeholder">?</div>
+          </div>
+          <section class="panel">
+            <h3>In the room</h3>
+            <ul id="room-items" class="item-list"></ul>
+          </section>
+          <section class="panel">
+            <h3>Your pockets</h3>
+            <ul id="inventory" class="item-list"></ul>
+          </section>
+        </aside>
+        <section class="chat-main">
+          <div class="log" id="log" aria-live="polite"></div>
+          <div class="banner" id="banner" hidden></div>
+          <form class="composer" id="composer" autocomplete="off">
+            <textarea id="input" rows="2" maxlength="1000"
+              placeholder="Say something, or describe what you do…"></textarea>
+            <button type="submit" id="send">Send</button>
+          </form>
+        </section>
       </div>
-      <h2 class="npc-name" id="npc-name"></h2>
-
-      <section class="panel">
-        <h3>In the room</h3>
-        <ul id="room-items" class="item-list"></ul>
-      </section>
-      <section class="panel">
-        <h3>Your pockets</h3>
-        <ul id="inventory" class="item-list"></ul>
-      </section>
-    </aside>
-
-    <section class="chat">
-      <div class="log" id="log" aria-live="polite"></div>
-      <div class="banner" id="banner" hidden></div>
-      <form class="composer" id="composer" autocomplete="off">
-        <textarea id="input" rows="2" maxlength="1000"
-          placeholder="Say something, or describe what you do…"></textarea>
-        <button type="submit" id="send">Send</button>
-      </form>
-    </section>
-  </main>
+    </div>
+  </div>
 </body>
 </html>

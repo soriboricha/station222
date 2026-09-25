@@ -31,13 +31,27 @@ class GameStateUpdate(BaseModel):
 class NpcResponse(BaseModel):
     npc_dialogue: str
     npc_action_description: str
-    game_state_update: GameStateUpdate
+    game_state_update: GameStateUpdate = Field(default_factory=lambda: GameStateUpdate(status="active"))
 
 
 class NpcSummary(BaseModel):
     id: str
     name: str
     location: str
+    room: int
+
+
+class NpcPlacement(NpcSummary):
+    room_items: list[str]
+
+
+class WorldInfo(BaseModel):
+    station_id: int
+    station_name: str
+    first_room: int
+    last_room: int
+    spawns: dict[str, int]
+    npcs: list[NpcPlacement]
 
 
 class NpcDetail(NpcSummary):

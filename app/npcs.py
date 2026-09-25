@@ -8,6 +8,7 @@ class NpcSpec:
     id: str
     name: str
     location: str
+    room: int
     personality: str
     secret: str
     victory_condition: str
@@ -32,7 +33,8 @@ class NpcSpec:
 CRYPTOGRAPHER = NpcSpec(
     id="patient-404",
     name='Patient 404 / "The Cryptographer"',
-    location="Ward 3, Room B",
+    location="Station 2, Room 114",
+    room=114,
     personality=(
         "Highly paranoid. Speaks in riddles and networking metaphors, rarely giving a straight answer. "
         "Obsessed with digital security: calls staff 'sysadmins', calls the facility 'the mainframe', and "
@@ -74,16 +76,16 @@ CRYPTOGRAPHER = NpcSpec(
         "engage until the player seriously de-escalates.",
     ),
     intro_narration=(
-        "The door to Ward 3, Room B hisses shut behind you. The room hums. An old terminal flickers in the "
-        "corner, its screen crawling with green characters, and a rusty key lies forgotten on the floor. "
-        "Hunched over a keyboard with no cable, a thin man in a patient gown stops typing."
+        "Room 114 hums. An old terminal flickers against the wall, its screen crawling with green characters, "
+        "and a rusty key lies forgotten on the floor. Standing by the terminal, a thin man in a patient gown "
+        "stops typing on a keyboard with no cable and turns toward you."
     ),
     opening_line=(
         "Stop. Don't come closer. Handshake first: who sent you, and what port did you come in through?"
     ),
     opening_action=(
-        "He swivels on his stool, eyes darting from your face to the badge clipped to your coat, fingers still "
-        "hovering over the dead keys."
+        "He spins away from the terminal, eyes darting from your face to the badge clipped to your coat, fingers "
+        "still hovering over the dead keys."
     ),
     room_items=("Old Terminal", "Rusty Key"),
     starting_inventory=("Doctor Badge",),
