@@ -4,6 +4,7 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
+from app.config import Settings, get_settings
 from app.engine import run_turn
 from app.main import app, get_llm
 from app.npcs import CRYPTOGRAPHER, MAKO, NPCS
@@ -169,7 +170,7 @@ def test_index_serves_game_page(client):
     response = client.get("/")
     assert response.status_code == 200
     assert "STATION" in response.text
-    for script in ("main", "world", "player", "npc", "chat", "props", "materials"):
+    for script in ("main", "world", "player", "npc", "chat", "props", "materials", "voice"):
         assert client.get(f"/static/js/{script}.js").status_code == 200
 
 
@@ -198,6 +199,19 @@ def test_api_npc_detail_without_secrets(client):
         if npc.secret_token:
             assert npc.secret_token.lower() not in response.text.lower()
     assert client.get("/api/npcs/nobody").status_code == 404
+
+
+def test_api_npc_detail_voice(client):
+    assert client.get("/api/npcs/vera").json()["voice"] == "af_bella"
+    assert client.get(f"/api/npcs/{MAKO.id}").json()["voice"] is None
+
+
+def test_speech_proxy_only_when_configured(client):
+    app.dependency_overrides[get_settings] = lambda: Settings(speech_url=None)
+    assert client.get("/speech/health").status_code == 404
+    app.dependency_overrides[get_settings] = lambda: Settings(speech_url="http://127.0.0.1:9")
+    assert client.get("/speech/health").status_code == 502
+    assert client.get("/speech/admin").status_code == 404
 
 
 def test_api_lists_npcs_without_secrets(client):

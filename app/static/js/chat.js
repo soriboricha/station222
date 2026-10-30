@@ -1,4 +1,9 @@
+import { MAX_RECORD_MS, Voice } from "./voice.js";
+
 const INVENTORY_KEY = "station222:inventory";
+const VOICE_KEY = "station222:voice";
+// Holding V in an empty composer this long means "talk"; a quick tap still types a "v".
+const HOLD_MS = 250;
 const STATUS_LABELS = { active: "calm", hostile: "hostile", defeated: "bypassed" };
 
 const $ = (id) => document.getElementById(id);
@@ -37,6 +42,8 @@ export class Chat {
       composer: $("composer"),
       input: $("input"),
       send: $("send"),
+      mic: $("mic"),
+      voiceToggle: $("chat-voice"),
     };
     this.npc = null;
     this.state = null;
@@ -44,6 +51,12 @@ export class Chat {
     this.details = new Map();
     this.inventory = readJson(INVENTORY_KEY) || [...startingInventory];
     this.newItems = [];
+    this.voice = new Voice();
+    this.speakReplies = readJson(VOICE_KEY) ?? true;
+    this.listening = false;
+    this.holdTimer = null;
+    this.placeholder = this.els.input.placeholder;
+    this.checkVoice();
 
     this.els.composer.addEventListener("submit", (event) => {
       event.preventDefault();
@@ -60,6 +73,107 @@ export class Chat {
     });
     this.els.close.addEventListener("click", () => this.close({ viaButton: true }));
     this.els.reset.addEventListener("click", () => this.reset());
+
+    this.els.voiceToggle.addEventListener("click", () => {
+      this.speakReplies = !this.speakReplies;
+      localStorage.setItem(VOICE_KEY, JSON.stringify(this.speakReplies));
+      if (!this.speakReplies) this.voice.stopSpeaking();
+      this.renderVoiceToggle();
+    });
+    this.els.mic.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      this.startListening();
+    });
+    this.els.mic.addEventListener("pointerup", () => this.stopListening());
+    this.els.mic.addEventListener("pointerleave", () => this.stopListening());
+    document.addEventListener("keydown", (event) => this.onVoiceKeyDown(event));
+    document.addEventListener("keyup", (event) => this.onVoiceKeyUp(event));
+  }
+
+  async checkVoice() {
+    const ok = await this.voice.checkHealth();
+    this.els.mic.hidden = !ok;
+    this.els.voiceToggle.hidden = !ok;
+    this.renderVoiceToggle();
+  }
+
+  renderVoiceToggle() {
+    this.els.voiceToggle.textContent = this.speakReplies ? "Voice on" : "Voice off";
+    this.els.voiceToggle.setAttribute("aria-pressed", String(this.speakReplies));
+  }
+
+  canSend() {
+    return this.isOpen && !this.busy && this.state && this.state.status !== "defeated";
+  }
+
+  onVoiceKeyDown(event) {
+    if (event.code !== "KeyV" || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (!this.isOpen || !this.voice.available) return;
+    const typing = document.activeElement === this.els.input;
+    if (typing && this.els.input.value !== "") return;
+    event.preventDefault();
+    if (event.repeat || this.holdTimer || this.listening) return;
+    if (!typing) return this.startListening();
+    this.holdKey = event.key;
+    this.holdTimer = setTimeout(() => {
+      this.holdTimer = null;
+      this.startListening();
+    }, HOLD_MS);
+  }
+
+  onVoiceKeyUp(event) {
+    if (event.code !== "KeyV") return;
+    if (this.holdTimer) {
+      clearTimeout(this.holdTimer);
+      this.holdTimer = null;
+      this.els.input.setRangeText(this.holdKey, this.els.input.selectionStart, this.els.input.selectionEnd, "end");
+      return;
+    }
+    this.stopListening();
+  }
+
+  async startListening() {
+    if (this.listening || !this.canSend()) return;
+    this.listening = true;
+    this.voice.stopSpeaking();
+    this.els.mic.classList.add("recording");
+    this.els.input.placeholder = "Listening… release V to send";
+    try {
+      await this.voice.startRecording();
+    } catch (err) {
+      console.error(err);
+      this.listening = false;
+      this.els.mic.classList.remove("recording");
+      this.els.input.placeholder = "Microphone blocked. Allow it in the browser to talk.";
+      return;
+    }
+    // Released before the mic came up: stop right away.
+    if (!this.listening) return this.finishListening();
+    this.recordTimer = setTimeout(() => this.stopListening(), MAX_RECORD_MS);
+  }
+
+  stopListening() {
+    if (!this.listening) return;
+    this.listening = false;
+    clearTimeout(this.recordTimer);
+    this.els.mic.classList.remove("recording");
+    if (this.voice.recorder) this.finishListening();
+  }
+
+  async finishListening() {
+    const npc = this.npc;
+    this.els.input.placeholder = "Transcribing…";
+    this.setInputEnabled(false);
+    let text = "";
+    try {
+      text = await this.voice.stopAndTranscribe();
+    } catch (err) {
+      console.error(err);
+    }
+    this.els.input.placeholder = text ? this.placeholder : "Didn't catch that. Hold V and try again.";
+    if (this.npc !== npc || !this.canSend()) return;
+    this.setInputEnabled(true);
+    if (text) this.sendTurn(text);
   }
 
   get isOpen() {
@@ -90,6 +204,7 @@ export class Chat {
     }
     if (!this.isOpen) return;
 
+    if (!this.voice.available) this.checkVoice();
     this.npc = this.details.get(placement.id);
     this.state = this.load() || this.freshState();
     this.setupSprite();
@@ -101,12 +216,16 @@ export class Chat {
     if (!this.isOpen) return;
     this.els.root.hidden = true;
     this.els.input.blur();
+    this.stopListening();
+    this.voice.stopSpeaking();
+    this.voice.releaseMic();
     this.onClose?.({ viaButton });
   }
 
   reset() {
     if (!this.npc || this.busy) return;
     if (!confirm("Start this conversation over?")) return;
+    this.voice.stopSpeaking();
     localStorage.removeItem(this.storageKey());
     this.state = this.freshState();
     this.render();
@@ -263,6 +382,9 @@ export class Chat {
       const response = await res.json();
       state.history.push({ role: "user", content: text });
       this.applyResponse(response);
+      if (this.speakReplies && npc.voice && this.voice.available && this.npc === npc && this.isOpen) {
+        this.voice.speak(response.npc_dialogue, npc.voice).catch((err) => console.error(err));
+      }
     } catch (err) {
       console.error(err);
       state.log.pop();

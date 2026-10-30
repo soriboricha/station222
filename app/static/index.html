@@ -18,7 +18,7 @@
     <div class="crosshair"></div>
     <div class="hud-prompt" id="hud-prompt" hidden></div>
     <div class="hud-toast" id="hud-toast" hidden></div>
-    <div class="hud-help">WASD move · Mouse look · Space jump · Shift sprint · E interact · Esc pause</div>
+    <div class="hud-help">WASD move · Mouse look · Space jump · Shift sprint · E interact · Hold V to speak in chat · Esc pause</div>
   </div>
 
   <div class="overlay" id="overlay">
@@ -38,6 +38,7 @@
           <div class="chat-room" id="chat-room"></div>
         </div>
         <div class="status" id="status" data-status="active">calm</div>
+        <button type="button" id="chat-voice" title="NPCs speak their replies aloud" hidden>Voice on</button>
         <button type="button" id="chat-reset" title="Start this conversation over">Reset</button>
         <button type="button" id="chat-close">Leave (Esc)</button>
       </header>
@@ -62,6 +63,7 @@
           <form class="composer" id="composer" autocomplete="off">
             <textarea id="input" rows="2" maxlength="1000"
               placeholder="Say something, or describe what you do…"></textarea>
+            <button type="button" id="mic" title="Hold to speak (or hold V)" hidden>Hold V</button>
             <button type="submit" id="send">Send</button>
           </form>
         </section>
