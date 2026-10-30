@@ -27,6 +27,8 @@ class NpcSpec:
     opening_line: str = ""
     opening_action: str = ""
     room_items: tuple[str, ...] = ()
+    # Kokoro voice for spoken replies (see speech/server.py); None keeps the NPC silent.
+    voice: str | None = None
 
     @property
     def allowed_trigger_events(self) -> frozenset[str]:
@@ -38,6 +40,7 @@ CRYPTOGRAPHER = NpcSpec(
     name='Patient 404 / "The Cryptographer"',
     location="Station 2, Room 113",
     room="113",
+    voice="am_michael",
     public_blurb="Room 113. Paranoid man who talks in riddles and network jargon, glued to an old terminal.",
     personality=(
         "Highly paranoid. Speaks in riddles and networking metaphors, rarely giving a straight answer. "
@@ -100,6 +103,7 @@ VERA = NpcSpec(
     name='Vera "The Banker"',
     location="Station 2, Room 114",
     room="114",
+    voice="af_bella",
     public_blurb=(
         "Room 114. Chatty woman who always holds her arms out in front of her, pitches her bank FINCA to "
         "everyone and loves pulling people's legs."
@@ -161,6 +165,7 @@ NASTIA = NpcSpec(
     name="Saint Nastia",
     location="Station 2, Room 133",
     room="133",
+    voice="bf_isabella",
     public_blurb=(
         "Room 133. Grand diva in an old-fashioned, very colourful opera costume; her room is full of books and "
         "strange paintings."
@@ -212,6 +217,7 @@ NORTHPOLE = NpcSpec(
     name="Mr. Northpole",
     location="Station 2, Room 117",
     room="117",
+    voice="bm_george",
     public_blurb="Room 117. Old man in a wheelchair who shouts at everyone. Says he used to be a Stasi agent.",
     personality=(
         "A very old former Stasi agent (East German secret police) who sits in his wheelchair and SHOUTS. Almost "

@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     max_history_messages: int = 30
     # Comma-separated, e.g. "https://a.example.com,https://b.example.com".
     cors_origins: str = "*"
+    # Base URL of the speech container (speech/), e.g. "http://speech:8000". Only needed when the
+    # reverse proxy does not already route /speech to it; the game server then forwards /speech/*.
+    speech_url: str | None = None
 
     @property
     def cors_origin_list(self) -> list[str]:

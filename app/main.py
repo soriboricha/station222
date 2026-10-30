@@ -2,7 +2,8 @@ import logging
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException
+import httpx
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -81,6 +82,7 @@ async def npc_detail(npc: Annotated[NpcSpec, Depends(get_npc)]) -> NpcDetail:
         opening_line=npc.opening_line,
         opening_action=npc.opening_action,
         room_items=list(npc.room_items),
+        voice=npc.voice,
     )
 
 
@@ -98,3 +100,26 @@ async def interact(
         max_attempts=settings.max_llm_attempts,
         max_history=settings.max_history_messages,
     )
+
+
+SPEECH_PATHS = {"health", "stt", "tts", "voices"}
+
+
+@app.api_route("/speech/{path}", methods=["GET", "POST"], include_in_schema=False)
+async def speech_proxy(
+    path: str, request: Request, settings: Annotated[Settings, Depends(get_settings)]
+) -> Response:
+    """Forward to the speech container when it is not routed to /speech directly (e.g. local dev)."""
+    if not settings.speech_url or path not in SPEECH_PATHS:
+        raise HTTPException(status_code=404, detail="Speech service not configured")
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            upstream = await client.request(
+                request.method,
+                f"{settings.speech_url.rstrip('/')}/{path}",
+                content=await request.body(),
+                headers={"Content-Type": request.headers.get("content-type", "application/octet-stream")},
+            )
+    except httpx.HTTPError:
+        raise HTTPException(status_code=502, detail="Speech service unreachable")
+    return Response(upstream.content, status_code=upstream.status_code, media_type=upstream.headers.get("content-type"))

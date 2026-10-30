@@ -63,3 +63,4 @@ class NpcDetail(NpcSummary):
     opening_line: str
     opening_action: str
     room_items: list[str]
+    voice: str | None = None
